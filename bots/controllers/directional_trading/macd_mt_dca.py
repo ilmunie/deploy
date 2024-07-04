@@ -220,8 +220,8 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         # Add indicators
         df_macd_2.ta.macd(fast=self.config.macd_fast_2, slow=self.config.macd_slow_2, signal=self.config.macd_signal_2,
                           append=True)
-        macdh = df_macd_1[f"MACDh_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
-        macd = df_macd_1[f"MACD_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
+        macdh = df_macd_2[f"MACDh_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
+        macd = df_macd_2[f"MACD_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
         if self.config.macd_signal_type_2 == 'trend_following':
             long_condition = (macdh > 0)
             short_condition = (macdh < 0)
@@ -232,10 +232,6 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         df_macd_2["signal_macd_2"] = 0
         df_macd_2.loc[long_condition, "signal_macd_2"] = 1
         df_macd_2.loc[short_condition, "signal_macd_2"] = -1
-
-
-
-
         # Generate signal
         # Merge DataFrames on timestamp
         df_macd_1['time'] = pd.to_datetime(df_macd_1['timestamp'], unit='ms')
