@@ -156,7 +156,11 @@ class BollingerMacdDCAControllerConfig(DirectionalTradingControllerConfigBase):
         client_data=ClientFieldData(
             prompt=lambda mi: "Enter the MACD signal period: ",
             prompt_on_new=True))
-
+    macd_signal_type: str = Field(
+        default="mean_reversion",
+        client_data=ClientFieldData(
+            prompt=lambda mi: "mean_reversion/trend_following",
+            prompt_on_new=False))
 
 
     @validator("candles_connector", pre=True, always=True)
@@ -202,8 +206,12 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         df_macd.ta.macd(fast=self.config.macd_fast, slow=self.config.macd_slow, signal=self.config.macd_signal, append=True)
         macdh = df_macd[f"MACDh_{self.config.macd_fast}_{self.config.macd_slow}_{self.config.macd_signal}"]
         macd = df_macd[f"MACD_{self.config.macd_fast}_{self.config.macd_slow}_{self.config.macd_signal}"]
-        long_condition = (macdh > 0) & (macd < 0)
-        short_condition = (macdh < 0) & (macd > 0)
+        if self.config.macd_signal_type == 'trend_following':
+            long_condition = (macdh > 0)
+            short_condition = (macdh < 0)
+        else:
+            long_condition = (macdh > 0) & (macd < 0)
+            short_condition = (macdh < 0) & (macd > 0)
         df_macd["signal_macd"] = 0
         df_macd.loc[long_condition, "signal_macd"] = 1
         df_macd.loc[short_condition, "signal_macd"] = -1
