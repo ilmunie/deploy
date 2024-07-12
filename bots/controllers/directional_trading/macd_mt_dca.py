@@ -18,7 +18,6 @@ class MacdMTDCAControllerConfig(DirectionalTradingControllerConfigBase):
     controller_name = "macd_mt_dca"
 
 
-
     #general controller config
     min_hold_next_executor: float = Field(
         default=1.0,
@@ -129,10 +128,15 @@ class MacdMTDCAControllerConfig(DirectionalTradingControllerConfigBase):
             prompt=lambda mi: "Enter the MACD signal period: ",
             prompt_on_new=True))
     macd_signal_type_1: str = Field(
-        default="mean_reversion",
+        default="mean_reversion_1",
         client_data=ClientFieldData(
-            prompt=lambda mi: "mean_reversion/trend_following",
+            prompt=lambda mi: "mean_reversion_1/trend_following/mean_reversion_2",
             prompt_on_new=False))
+    macd_number_of_candles_1: int = Field(
+        default=4,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the MACD increasing-decr periods: ",
+            prompt_on_new=True))
     macd_interval_2: str = Field(
         default="3m",
         client_data=ClientFieldData(
@@ -158,7 +162,11 @@ class MacdMTDCAControllerConfig(DirectionalTradingControllerConfigBase):
         client_data=ClientFieldData(
             prompt=lambda mi: "mean_reversion/trend_following",
             prompt_on_new=False))
-
+    macd_number_of_candles_2: int = Field(
+        default=4,
+        client_data=ClientFieldData(
+            prompt=lambda mi: "Enter the MACD increasing-decr periods: ",
+            prompt_on_new=True))
     @validator("candles_connector", pre=True, always=True)
     def set_candles_connector(cls, v, values):
         if v is None or v == "":
@@ -193,6 +201,15 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         super().__init__(config, *args, **kwargs)
 
     async def update_processed_data(self):
+
+        def check_increasing(series, number_of_candles):
+            # Check if the series has 3 consecutive increasing values
+            return (series.iloc[-number_of_candles] <= series.iloc[-1])
+
+        def check_decreasing(series, number_of_candles):
+            # Check if the series has 3 consecutive increasing values
+            return (series.iloc[-number_of_candles] >= series.iloc[-1])
+
         df_macd_1 = self.market_data_provider.get_candles_df(connector_name=self.config.candles_connector,
                                                       trading_pair=self.config.candles_trading_pair,
                                                       interval=self.config.macd_interval_1,
@@ -200,19 +217,37 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         # Add indicators
         # macd1
         df_macd_1.ta.macd(fast=self.config.macd_fast_1, slow=self.config.macd_slow_1, signal=self.config.macd_signal_1, append=True)
-        macdh = df_macd_1[f"MACDh_{self.config.macd_fast_1}_{self.config.macd_slow_1}_{self.config.macd_signal_1}"]
-        macd = df_macd_1[f"MACD_{self.config.macd_fast_1}_{self.config.macd_slow_1}_{self.config.macd_signal_1}"]
-        if self.config.macd_signal_type_1 == 'trend_following':
-            long_condition = (macdh > 0)
-            short_condition = (macdh < 0)
-        else:
-            long_condition = (macdh > 0) & (macd < 0)
-            short_condition = (macdh < 0) & (macd > 0)
+        macd_1_col = f'MACD_{self.config.macd_fast_1}_{self.config.macd_slow_1}_{self.config.macd_signal_1}'
+        macd_1_h_col = f'MACDh_{self.config.macd_fast_1}_{self.config.macd_slow_1}_{self.config.macd_signal_1}'
+        # ADD TIME COLUMN TO MERGE
+        df_macd_1['time'] = pd.to_datetime(df_macd_1['timestamp'], unit='ms')
+        # SET MACD SIGNAL
         df_macd_1["signal_macd_1"] = 0
-        df_macd_1.loc[long_condition, "signal_macd_1"] = 1
-        df_macd_1.loc[short_condition, "signal_macd_1"] = -1
+        number_of_candles_1 = self.config.macd_number_of_candles_1
 
-        #macd2
+        if self.config.macd_signal_type_1 == 'mean_reversion_1':
+            long_condition_1 = (df_macd_1[macd_1_h_col] > 0) & (df_macd_1[macd_1_col] < 0)
+            short_condition_1 = (df_macd_1[macd_1_h_col] < 0) & (df_macd_1[macd_1_col] > 0)
+            df_macd_1.loc[long_condition_1, "signal_macd_1"] = 1
+            df_macd_1.loc[short_condition_1, "signal_macd_1"] = -1
+        else:
+            df_macd_1["diff_macd_1"] = 0
+            increasing_condition_1 = df_macd_1[macd_1_h_col].rolling(window=number_of_candles_1).apply(
+                lambda x: check_increasing(x, number_of_candles_1), raw=False).fillna(0).astype(int)
+            decreasing_condition_1 = df_macd_1[macd_1_h_col].rolling(window=number_of_candles_1).apply(
+                lambda x: check_decreasing(x, number_of_candles_1), raw=False).fillna(0).astype(int)
+            df_macd_1.loc[increasing_condition_1.astype(bool), 'diff_macd_1'] = 1
+            df_macd_1.loc[decreasing_condition_1.astype(bool), 'diff_macd_1'] = -1
+            if self.config.macd_signal_type_1 == 'trend_following':
+                df_macd_1['signal_macd_1'] = df_macd_1['diff_macd_1']
+            else:
+                long_condition_1 = (df_macd_1['diff_macd_1'] > 0) & (df_macd_1[macd_1_col] < 0)
+                short_condition_1 = (df_macd_1['diff_macd_1'] < 0) & (df_macd_1[macd_1_col] > 0)
+                df_macd_1.loc[long_condition_1, "signal_macd_1"] = 1
+                df_macd_1.loc[short_condition_1, "signal_macd_1"] = -1
+
+        #same to macd2
+        #same to macd2
         df_macd_2 = self.market_data_provider.get_candles_df(connector_name=self.config.candles_connector,
                                                              trading_pair=self.config.candles_trading_pair,
                                                              interval=self.config.macd_interval_2,
@@ -220,18 +255,34 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
         # Add indicators
         df_macd_2.ta.macd(fast=self.config.macd_fast_2, slow=self.config.macd_slow_2, signal=self.config.macd_signal_2,
                           append=True)
-        macdh = df_macd_2[f"MACDh_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
-        macd = df_macd_2[f"MACD_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}"]
-        if self.config.macd_signal_type_2 == 'trend_following':
-            long_condition = (macdh > 0)
-            short_condition = (macdh < 0)
-        else:
-            long_condition = (macdh > 0) & (macd < 0)
-            short_condition = (macdh < 0) & (macd > 0)
-
+        macd_2_col = f'MACD_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}'
+        macd_2_h_col = f'MACDh_{self.config.macd_fast_2}_{self.config.macd_slow_2}_{self.config.macd_signal_2}'
+        # ADD TIME COLUMN TO MERGE
+        df_macd_2['time'] = pd.to_datetime(df_macd_2['timestamp'], unit='ms')
+        # SET MACD SIGNAL
         df_macd_2["signal_macd_2"] = 0
-        df_macd_2.loc[long_condition, "signal_macd_2"] = 1
-        df_macd_2.loc[short_condition, "signal_macd_2"] = -1
+        number_of_candles_2 = self.config.macd_number_of_candles_2
+
+        if self.config.macd_signal_type_2 == 'mean_reversion_2':
+            long_condition_2 = (df_macd_2[macd_2_h_col] > 0) & (df_macd_2[macd_2_col] < 0)
+            short_condition_2 = (df_macd_2[macd_2_h_col] < 0) & (df_macd_2[macd_2_col] > 0)
+            df_macd_2.loc[long_condition_2, "signal_macd_2"] = 1
+            df_macd_2.loc[short_condition_2, "signal_macd_2"] = -1
+        else:
+            df_macd_2["diff_macd_2"] = 0
+            increasing_condition_2 = df_macd_2[macd_2_h_col].rolling(window=number_of_candles_2).apply(
+                lambda x: check_increasing(x, number_of_candles_2), raw=False).fillna(0).astype(int)
+            decreasing_condition_2 = df_macd_2[macd_2_h_col].rolling(window=number_of_candles_2).apply(
+                lambda x: check_decreasing(x, number_of_candles_2), raw=False).fillna(0).astype(int)
+            df_macd_2.loc[increasing_condition_2.astype(bool), 'diff_macd_2'] = 1
+            df_macd_2.loc[decreasing_condition_2.astype(bool), 'diff_macd_2'] = -1
+            if self.config.macd_signal_type_2 == 'trend_following':
+                df_macd_2['signal_macd_2'] = df_macd_2['diff_macd_2']
+            else:
+                long_condition_2 = (df_macd_2['diff_macd_2'] > 0) & (df_macd_2[macd_2_col] < 0)
+                short_condition_2 = (df_macd_2['diff_macd_2'] < 0) & (df_macd_2[macd_2_col] > 0)
+                df_macd_2.loc[long_condition_2, "signal_macd_2"] = 1
+                df_macd_2.loc[short_condition_2, "signal_macd_2"] = -1
         # Generate signal
         # Merge DataFrames on timestamp
         df_macd_1['time'] = pd.to_datetime(df_macd_1['timestamp'], unit='ms')
