@@ -180,7 +180,7 @@ class MacdMTDCAControllerConfig(DirectionalTradingControllerConfigBase):
         return v
 
 
-class BollingerMacdDCAController(DirectionalTradingControllerBase):
+class MacdMTDCAController(DirectionalTradingControllerBase):
     def __init__(self, config: MacdMTDCAControllerConfig, *args, **kwargs):
         self.config = config
         self.dca_amounts_pct = [Decimal(amount) / sum(self.config.dca_amounts) for amount in self.config.dca_amounts]
@@ -345,7 +345,7 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
             timestamp=self.market_data_provider.time(),
             connector_name=self.config.connector_name,
             trading_pair=self.config.trading_pair,
-            mode=DCAMode.TAKER,
+            mode=DCAMode.MAKER,
             side=trade_type,
             prices=prices,
             amounts_quote=amounts_quote,
