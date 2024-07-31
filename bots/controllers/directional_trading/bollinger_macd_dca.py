@@ -295,7 +295,7 @@ class BollingerMacdDCAController(DirectionalTradingControllerBase):
             timestamp=self.market_data_provider.time(),
             connector_name=self.config.connector_name,
             trading_pair=self.config.trading_pair,
-            mode=DCAMode.TAKER,
+            mode=DCAMode.MAKER,
             side=trade_type,
             prices=prices,
             amounts_quote=amounts_quote,
